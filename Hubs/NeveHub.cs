@@ -6,7 +6,7 @@ using Neve.Server.Services;
 
 namespace Neve.Server.Hubs
 {
-    public class NeveHub : Hub<IClientProxy>
+    public class NeveHub : Hub
     {
         private static IConfiguration Configuration = new ConfigurationBuilder()
             .AddJsonFile("appsettings.json")

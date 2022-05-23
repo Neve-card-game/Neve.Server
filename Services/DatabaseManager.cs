@@ -1,5 +1,4 @@
-using System.Xml.Linq;
-using System.Threading;
+
 // handle database requests
 using System;
 using System.Data;
@@ -138,12 +137,18 @@ namespace Neve.Server.Services
         }
         public async Task<bool> EmailExist()
         {
+           
+            bool re = false;
             using var cmd = Connection.CreateCommand();
-            cmd.CommandText = @"SELECT Email FROM userdb.user WHERE `Email`=@Email limit 1;";
+            cmd.CommandText = @"SELECT * FROM userdb.user WHERE `Email`=@Email limit 1;";
             BindParams(cmd);
             DbDataReader reader = await cmd.ExecuteReaderAsync();
-            return await reader.ReadAsync();
-
+            while (await reader.ReadAsync())
+            {
+                re = !await reader.IsDBNullAsync(0);
+                
+            }
+            return re;
         }
 
         public async Task<bool> CheckLoginAsync()
@@ -156,6 +161,7 @@ namespace Neve.Server.Services
             while(await reader.ReadAsync()){
                re =  reader.GetBoolean(0);
             }
+            
             return re;
         }
 

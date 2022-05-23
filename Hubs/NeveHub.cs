@@ -6,13 +6,12 @@ using Neve.Server.Services;
 
 namespace Neve.Server.Hubs
 {
-
-    
-    public class NeveHub : Hub
+    public class NeveHub : Hub<IClientProxy>
     {
-        private static IConfiguration Configuration = new ConfigurationBuilder().AddJsonFile("appsettings.json").Build();
+        private static IConfiguration Configuration = new ConfigurationBuilder()
+            .AddJsonFile("appsettings.json")
+            .Build();
         private string _connectionstring = Configuration["ConnectionStrings:Default"];
-
 
         // Client Connection Debug
         public override Task OnConnectedAsync()
@@ -25,6 +24,13 @@ namespace Neve.Server.Hubs
         {
             Console.WriteLine("用户登出：" + Context.ConnectionId);
             return base.OnDisconnectedAsync(exception);
+        }
+
+        public async Task SendMessage(string user, string message)
+        {
+            Console.WriteLine("接收");
+            await Clients.All.SendAsync("ReceiveMessage", user, message);
+            Console.WriteLine("发送");
         }
 
         // User Information
@@ -46,18 +52,15 @@ namespace Neve.Server.Hubs
             }
             catch (System.Exception)
             {
-
                 Console.WriteLine("注册失败");
             }
 
             return true;
         }
 
-        public async Task<bool> Eamilexist(string email)
+        public async Task<bool> Emailexist(string email)
         {
-            var RegTime = DateTime.Now;
-            var LastLogInTime = DateTime.Now;
-            var newUser = new User(null, email, null, null, RegTime, LastLogInTime, true);
+            var newUser = new User(null, email, null, null, null, null, true);
             DatabaseManager databaseManager = new DatabaseManager(_connectionstring, newUser);
             await databaseManager.Connection.OpenAsync();
             try
@@ -107,7 +110,16 @@ namespace Neve.Server.Hubs
             var newUser = new User(null, email, password, null, null, null, true);
             DatabaseManager databaseManager = new DatabaseManager(_connectionstring, newUser);
             await databaseManager.Connection.OpenAsync();
-            return await databaseManager.CheckPasswordAsync();
+            if (await databaseManager.CheckPasswordAsync())
+            {
+                Console.WriteLine("密码正确");
+                return true;
+            }
+            else
+            {
+                Console.WriteLine("密码错误");
+                return false;
+            }
         }
 
         public async Task<bool> CheckLogin(string email)
@@ -118,7 +130,8 @@ namespace Neve.Server.Hubs
             return await databaseManager.CheckLoginAsync();
         }
 
-        public async Task<User> GetPlayerMessage(string email){
+        public async Task<User> GetPlayerMessage(string email)
+        {
             var newUser = new User(null, email, null, null, null, null, true);
             DatabaseManager databaseManager = new DatabaseManager(_connectionstring, newUser);
             await databaseManager.Connection.OpenAsync();
@@ -126,6 +139,7 @@ namespace Neve.Server.Hubs
             newUser = await databaseManager.GetPlayerAsync();
             return newUser;
         }
+
         //DeckCollection
         public async Task<string[]?> LoadDeckList(string email)
         {
@@ -168,7 +182,7 @@ namespace Neve.Server.Hubs
             }
         }
 
-        //
+        //RoomChat
 
         // Matchmaking
         public async Task StartMatch(string userName)

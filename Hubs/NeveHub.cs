@@ -6,7 +6,7 @@ using Neve.Server.Services;
 
 namespace Neve.Server.Hubs
 {
-    public class NeveHub : Hub<IClientProxy>
+    public class NeveHub : Hub
     {
         private static IConfiguration Configuration = new ConfigurationBuilder()
             .AddJsonFile("appsettings.json")
@@ -28,9 +28,9 @@ namespace Neve.Server.Hubs
 
         public async Task SendMessage(string user, string message)
         {
-            Console.WriteLine("接收");
-            await Clients.All.SendAsync("ReceiveMessage", user, message);
-            Console.WriteLine("发送");
+            string newMessage = user+"("+DateTime.Now.ToString("hh:mm:ss")+"):"+message;
+            await Clients.All.SendAsync("ReceiveMessage", newMessage);
+            
         }
 
         // User Information

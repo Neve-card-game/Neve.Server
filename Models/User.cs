@@ -1,5 +1,3 @@
-using System;
-
 namespace NeveServer.Models
 {
     /// <summary>

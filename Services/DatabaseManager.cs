@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using NeveServer.Models;
 using MySqlConnector;
+using Newtonsoft.Json;
 
 namespace Neve.Server.Services
 {
@@ -35,6 +36,8 @@ namespace Neve.Server.Services
         public int? UseingDeckId { get; set; }
 
         public int? RoomNumberOfPeople{get;set;}
+
+        public List<string>? RoomMemberList{get;set;}
         public string? DeckList { get; set; }
 
         public MySqlConnection Connection { get; }
@@ -62,6 +65,7 @@ namespace Neve.Server.Services
             RoomName = _room.RoomName;
             RoomPassword = _room.RoomPassword;
             RoomNumberOfPeople = _room.RoomNumberOfPeople;
+            RoomMemberList = _room.RoomMemberList;
             CreatedTime = _room.CreatedTime;
             RoomStatus = _room.Status;
         }
@@ -97,7 +101,7 @@ namespace Neve.Server.Services
             await cmd.ExecuteReaderAsync();
         }
 
-        public async Task UpdataPlayerAsync()
+        public async Task UpdatePlayerAsync()
         {
             using var cmd = Connection.CreateCommand();
             cmd.CommandText =
@@ -231,7 +235,7 @@ namespace Neve.Server.Services
         {
             using var cmd = Connection.CreateCommand();
             cmd.CommandText =
-                @"INSERT INTO `userdb`.`roomlist` (`RoomId`, `RoomName`, `RoomPassword`, `RoomNumberOfPeople`, `CreateTime`, `Status`) VALUES (@RoomId,@RoomName,@RoomPassword,@RoomNumberOfPeople,@CreatedTime,@RoomStatus);";
+                @"INSERT INTO `userdb`.`roomlist` (`RoomId`, `RoomName`, `RoomPassword`, `RoomNumberOfPeople`, `CreateTime`, `Status`, `RoomMemberList`) VALUES (@RoomId,@RoomName,@RoomPassword,@RoomNumberOfPeople,@CreatedTime,@RoomStatus,@RoomMemberList);";
             BindId(cmd);
             BindParams(cmd);
             await cmd.ExecuteNonQueryAsync();
@@ -241,7 +245,7 @@ namespace Neve.Server.Services
         {
             using var cmd = Connection.CreateCommand();
             cmd.CommandText =
-                @"UPDATE `userdb`.`roomlist` SET `RoomNumberOfPeople`=@RoomNumberOfPeople,`Status`=@RoomStatus WHERE `RoomName`=@RoomName;";
+                @"UPDATE `userdb`.`roomlist` SET `RoomNumberOfPeople`=@RoomNumberOfPeople,`Status`=@RoomStatus,`RoomMemberList`=@RoomMemberList  WHERE `RoomName`=@RoomName;";
             BindParams(cmd);
             await cmd.ExecuteReaderAsync();
         }
@@ -263,25 +267,11 @@ namespace Neve.Server.Services
                     newRoom.RoomNumberOfPeople = reader.GetInt32(3);
                     newRoom.CreatedTime = reader.GetDateTime(4);
                     newRoom.Status = reader.GetBoolean(5);
+                    newRoom.RoomMemberList = JsonConvert.DeserializeObject(reader.GetString(6),typeof(List<string>)) as List<string>;
                     RoomLists.Add(newRoom);
                 }
             }
             return RoomLists;
-        }
-
-        public async Task<int> GetRoomNumberOfPeople()
-        {
-            int count = 0;
-            using var cmd = Connection.CreateCommand();
-            cmd.CommandText =
-                @"SELECT `RoomNumberOfPeople` FROM `userdb`.`roomlist` WHERE `RoomName`=@RoomName limit 1;";
-            BindParams(cmd);
-            DbDataReader reader = await cmd.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
-            {
-                count = reader.GetInt32(0);
-            }
-            return count;
         }
 
         public async Task<bool> RoomNameExist()
@@ -452,6 +442,14 @@ namespace Neve.Server.Services
                     ParameterName = "@RoomNumberOfPeople",
                     DbType = DbType.Int32,
                     Value = RoomNumberOfPeople,
+                }
+            );
+
+            cmd.Parameters.Add(
+                new MySqlParameter{
+                    ParameterName = "@RoomMemberList",
+                    DbType = DbType.String,
+                    Value = JsonConvert.SerializeObject(RoomMemberList),
                 }
             );
 

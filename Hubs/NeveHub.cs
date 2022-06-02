@@ -14,6 +14,7 @@ namespace Neve.Server.Hubs
             .Build();
         private string _connectionstring = Configuration["ConnectionStrings:Default"];
         public static Dictionary<string, string> GroupsManager = new Dictionary<string, string>();
+        public static Dictionary<string, string> LogManager = new Dictionary<string, string>();
 
         // Client Connection Debug
         public override Task OnConnectedAsync()
@@ -48,6 +49,7 @@ namespace Neve.Server.Hubs
                 DropFromRoom(GroupsManager[Context.ConnectionId]);
                 GroupsManager.Remove(Context.ConnectionId);
             }
+            DisconnectLogout(Context.ConnectionId);
             return base.OnDisconnectedAsync(exception);
         }
 
@@ -73,6 +75,8 @@ namespace Neve.Server.Hubs
             {
                 await databaseManager.InsertAsync();
                 await databaseManager2.InsertPlayerAsync();
+                await databaseManager.Connection.CloseAsync();
+                await databaseManager2.Connection.CloseAsync();
             }
             catch (System.Exception)
             {
@@ -92,11 +96,13 @@ namespace Neve.Server.Hubs
                 if (await databaseManager.EmailExist())
                 {
                     Console.WriteLine("重复注册");
+                    await databaseManager.Connection.CloseAsync();
                     return true;
                 }
                 else
                 {
                     Console.WriteLine("没有重复注册");
+                    await databaseManager.Connection.CloseAsync();
                     return false;
                 }
             }
@@ -117,7 +123,11 @@ namespace Neve.Server.Hubs
             await databaseManager2.Connection.OpenAsync();
             databaseManager2.LoginStatus = true;
             await databaseManager.UpdateAsync();
-            await databaseManager2.UpdataPlayerAsync();
+            await databaseManager2.UpdatePlayerAsync();
+            await databaseManager.Connection.CloseAsync();
+            await databaseManager2.Connection.CloseAsync();
+
+            LogManager.Add(Context.ConnectionId,email);
         }
 
         public async Task Logout(string email)
@@ -126,7 +136,13 @@ namespace Neve.Server.Hubs
             DatabaseManager databaseManager = new DatabaseManager(_connectionstring, newUser);
             await databaseManager.Connection.OpenAsync();
             databaseManager.LoginStatus = false;
-            await databaseManager.UpdataPlayerAsync();
+            await databaseManager.UpdatePlayerAsync();
+            await databaseManager.Connection.CloseAsync();
+        }
+
+        public async void DisconnectLogout(string Id){
+            await Logout(LogManager[Id]);
+            LogManager.Remove(Id);
         }
 
         public async Task<bool> CheckPassword(string email, string password)
@@ -137,11 +153,13 @@ namespace Neve.Server.Hubs
             if (await databaseManager.CheckPasswordAsync())
             {
                 Console.WriteLine("密码正确");
+                await databaseManager.Connection.CloseAsync();
                 return true;
             }
             else
             {
                 Console.WriteLine("密码错误");
+                await databaseManager.Connection.CloseAsync();
                 return false;
             }
         }
@@ -161,6 +179,7 @@ namespace Neve.Server.Hubs
             await databaseManager.Connection.OpenAsync();
             List<string> returnMessage = new List<string>();
             newUser = await databaseManager.GetPlayerAsync();
+            await databaseManager.Connection.CloseAsync();
             return newUser;
         }
 
@@ -192,11 +211,13 @@ namespace Neve.Server.Hubs
                 if (await databaseManager.UpdataPlayerDackListAsync())
                 {
                     Console.WriteLine("储存成功");
+                    await databaseManager.Connection.CloseAsync();
                     return true;
                 }
                 else
                 {
                     Console.WriteLine("储存失败");
+                    await databaseManager.Connection.CloseAsync();
                     return false;
                 }
             }
@@ -207,12 +228,13 @@ namespace Neve.Server.Hubs
         }
 
         //GameRoom
-        public async Task<bool> CreateRoom(string roomName, string roomPassword)
+        public async Task<bool> CreateRoom(string roomName, string roomPassword, string username)
         {
             Random random = new Random();
             bool result = false;
             string id = random.Next(10000, 1000000).ToString();
             Room newRoom = new Room(id, roomName, roomPassword, 1, DateTime.Now, true);
+            newRoom.RoomMemberList.Add(username);
             DatabaseManager databaseManager = new DatabaseManager(_connectionstring, newRoom);
             await databaseManager.Connection.OpenAsync();
             if (!await RoomNameExist(roomName))
@@ -230,64 +252,76 @@ namespace Neve.Server.Hubs
                     Console.WriteLine(ex);
                 }
             }
-
+            await databaseManager.Connection.CloseAsync();
             return result;
         }
 
-        public async Task<bool> AddToRoom(string roomName, string roomPassword)
+        public async Task<bool> AddToRoom(string roomName, string roomPassword, string username)
         {
             bool result = false;
-            Room newRoom = new Room(null, roomName, roomPassword, 0, null, true);
-            DatabaseManager databaseManager1 = new DatabaseManager(_connectionstring, newRoom);
-            await databaseManager1.Connection.OpenAsync();
-            newRoom.RoomNumberOfPeople = await databaseManager1.GetRoomNumberOfPeople();
-            newRoom.RoomNumberOfPeople++;
-            await databaseManager1.Connection.CloseAsync();
-            DatabaseManager databaseManager = new DatabaseManager(_connectionstring, newRoom);
-            await databaseManager.Connection.OpenAsync();
-            if (await RoomNameExist(roomName) && await RoomPasswordCheck(roomName, roomPassword))
+            List<Room> RoomList = await GetRoomList();
+            foreach (var room in RoomList)
             {
-                await databaseManager.RoomUpdateAsync();
-                result = true;
-                await Groups.AddToGroupAsync(Context.ConnectionId, roomName);
-                GroupsManager.Add(Context.ConnectionId, roomName);
-                await Clients.Group(roomName).SendAsync("Check", "加入成功");
+                if (room.RoomName == roomName)
+                {
+                    room.RoomMemberList.Add(username);
+                    room.RoomNumberOfPeople++;
+                    DatabaseManager databaseManager = new DatabaseManager(_connectionstring, room);
+                    await databaseManager.Connection.OpenAsync();
+                    if (await RoomPasswordCheck(roomName,roomPassword))
+                    {
+                        await databaseManager.RoomUpdateAsync();
+                        result = true;
+                        await Groups.AddToGroupAsync(Context.ConnectionId, roomName);
+                        GroupsManager.Add(Context.ConnectionId, roomName);
+                        await Clients.Group(roomName).SendAsync("Check", "加入成功");
+                    }
+                    await databaseManager.Connection.CloseAsync();
+
+                    break;
+                }
             }
 
             return result;
         }
 
-        public async Task<bool> RemoveFromRoom(string roomName)
+        public async Task<bool> RemoveFromRoom(string roomName, string username)
         {
             bool result = false;
-            Room newRoom = new Room(null, roomName, null, 0, null, true);
-            DatabaseManager databaseManager1 = new DatabaseManager(_connectionstring, newRoom);
-            await databaseManager1.Connection.OpenAsync();
-            newRoom.RoomNumberOfPeople = await databaseManager1.GetRoomNumberOfPeople();
-            newRoom.RoomNumberOfPeople--;
-            await databaseManager1.Connection.CloseAsync();
-            DatabaseManager databaseManager = new DatabaseManager(_connectionstring, newRoom);
-            await databaseManager.Connection.OpenAsync();
-            if (await RoomNameExist(roomName))
+            List<Room> RoomList = await GetRoomList();
+            foreach (var room in RoomList)
             {
-                if (newRoom.RoomNumberOfPeople == 0)
+                if (room.RoomName == roomName)
                 {
-                    try
+                    room.RoomMemberList.Remove(username);
+                    room.RoomNumberOfPeople--;
+                    DatabaseManager databaseManager = new DatabaseManager(_connectionstring, room);
+                    await databaseManager.Connection.OpenAsync();
+                    if (await RoomNameExist(roomName))
                     {
-                        await databaseManager.RemoveRoom();
+                        if (room.RoomNumberOfPeople == 0)
+                        {
+                            try
+                            {
+                                await databaseManager.RemoveRoom();
+                                result = true;
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine(ex);
+                            }
+                        }
+                        else
+                        {
+                            await databaseManager.RoomUpdateAsync();
+                            result = true;
+                            await Groups.RemoveFromGroupAsync(Context.ConnectionId, roomName);
+                            GroupsManager.Remove(Context.ConnectionId);
+                            await Clients.Group(roomName).SendAsync("Check", "离开房间");
+                        }
                     }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine(ex);
-                    }
-                }
-                else
-                {
-                    await databaseManager.RoomUpdateAsync();
-                    result = true;
-                    await Groups.RemoveFromGroupAsync(Context.ConnectionId, roomName);
-                    GroupsManager.Remove(Context.ConnectionId);
-                    await Clients.Group(roomName).SendAsync("Check", "离开房间");
+                    await databaseManager.Connection.CloseAsync();
+                    break;
                 }
             }
 
@@ -296,32 +330,34 @@ namespace Neve.Server.Hubs
 
         public async void DropFromRoom(string roomName)
         {
-            Room newRoom = new Room(null, roomName, null, 0, null, true);
-            DatabaseManager databaseManager1 = new DatabaseManager(_connectionstring, newRoom);
-            await databaseManager1.Connection.OpenAsync();
-            newRoom.RoomNumberOfPeople = await databaseManager1.GetRoomNumberOfPeople();
-            newRoom.RoomNumberOfPeople--;
-            await databaseManager1.Connection.CloseAsync();
-            DatabaseManager databaseManager = new DatabaseManager(_connectionstring, newRoom);
-            await databaseManager.Connection.OpenAsync();
-
-            if (await RoomNameExist(roomName))
+            List<Room> RoomList = await GetRoomList();
+            foreach (var room in RoomList)
             {
-                if (newRoom.RoomNumberOfPeople == 0)
+                if (room.RoomName == roomName)
                 {
-                    try
+                    room.RoomNumberOfPeople--;
+                    DatabaseManager databaseManager = new DatabaseManager(_connectionstring, room);
+                    await databaseManager.Connection.OpenAsync();
+                    if (await RoomNameExist(roomName))
                     {
-                        await databaseManager.RemoveRoom();
+                        if (room.RoomNumberOfPeople == 0)
+                        {
+                            try
+                            {
+                                await databaseManager.RemoveRoom();
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine(ex);
+                            }
+                        }
+                        else
+                        {
+                            await databaseManager.RoomUpdateAsync();
+                        }
                     }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine(ex);
-                    }
-                }
-                else
-                {
-                    await databaseManager.RoomUpdateAsync();
-                    await Clients.Group(roomName).SendAsync("Check", "离开房间");
+                    await databaseManager.Connection.CloseAsync();
+                    break;
                 }
             }
         }
@@ -341,10 +377,8 @@ namespace Neve.Server.Hubs
             await databaseManager.Connection.OpenAsync();
             return await databaseManager.RoomNameExist();
         }
-
-        public async Task<bool> RoomPasswordCheck(string RoomName, string RoomPassword)
-        {
-            Room room = new Room(null, RoomName, RoomPassword, null, null, true);
+        public async Task<bool> RoomPasswordCheck(string RoomName,string RoomPassword){
+             Room room = new Room(null, RoomName, RoomPassword, null, null, true);
             DatabaseManager databaseManager = new DatabaseManager(_connectionstring, room);
             await databaseManager.Connection.OpenAsync();
             return await databaseManager.RoomPasswordCheck();

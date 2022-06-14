@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.SignalR;
 using System.Threading.Tasks;
 using NeveServer.Models;
 using Neve.Server.Services;
+using Newtonsoft.Json;
 
 namespace Neve.Server.Hubs
 {
@@ -127,7 +128,7 @@ namespace Neve.Server.Hubs
             await databaseManager.Connection.CloseAsync();
             await databaseManager2.Connection.CloseAsync();
 
-            LogManager.Add(Context.ConnectionId,email);
+            LogManager.Add(Context.ConnectionId, email);
         }
 
         public async Task Logout(string email)
@@ -140,9 +141,14 @@ namespace Neve.Server.Hubs
             await databaseManager.Connection.CloseAsync();
         }
 
-        public async void DisconnectLogout(string Id){
-            await Logout(LogManager[Id]);
-            LogManager.Remove(Id);
+        public async void DisconnectLogout(string Id)
+        {
+            try
+            {
+                await Logout(LogManager[Id]);
+                LogManager.Remove(Id);
+            }
+            catch { }
         }
 
         public async Task<bool> CheckPassword(string email, string password)
@@ -207,8 +213,8 @@ namespace Neve.Server.Hubs
             {
                 await databaseManager.Connection.OpenAsync();
                 databaseManager.DeckList = decklist;
-                databaseManager.UseingDeckId = deckid;
-                if (await databaseManager.UpdataPlayerDackListAsync())
+                databaseManager.UsingDeckId = deckid;
+                if (await databaseManager.UpdatePlayerDeckListAsync())
                 {
                     Console.WriteLine("储存成功");
                     await databaseManager.Connection.CloseAsync();
@@ -268,7 +274,7 @@ namespace Neve.Server.Hubs
                     room.RoomNumberOfPeople++;
                     DatabaseManager databaseManager = new DatabaseManager(_connectionstring, room);
                     await databaseManager.Connection.OpenAsync();
-                    if (await RoomPasswordCheck(roomName,roomPassword))
+                    if (await RoomPasswordCheck(roomName, roomPassword))
                     {
                         await databaseManager.RoomUpdateAsync();
                         result = true;
@@ -303,6 +309,7 @@ namespace Neve.Server.Hubs
                         {
                             try
                             {
+                                GroupsManager.Remove(Context.ConnectionId);
                                 await databaseManager.RemoveRoom();
                                 result = true;
                             }
@@ -377,17 +384,22 @@ namespace Neve.Server.Hubs
             await databaseManager.Connection.OpenAsync();
             return await databaseManager.RoomNameExist();
         }
-        public async Task<bool> RoomPasswordCheck(string RoomName,string RoomPassword){
-             Room room = new Room(null, RoomName, RoomPassword, null, null, true);
+
+        public async Task<bool> RoomPasswordCheck(string RoomName, string RoomPassword)
+        {
+            Room room = new Room(null, RoomName, RoomPassword, null, null, true);
             DatabaseManager databaseManager = new DatabaseManager(_connectionstring, room);
             await databaseManager.Connection.OpenAsync();
             return await databaseManager.RoomPasswordCheck();
         }
 
         // Matchmaking
-        public async Task StartMatch(string userName)
+        public async Task StartMatch(string roomName, GameState Match)
         {
-            await Task.CompletedTask;
+            var gameManger = new GameManger();
+
+            gameManger.MatchStart(ref Match);
+            await Clients.Group(roomName).SendAsync("GameStateCheck", Match);
         }
 
         public async Task StopMatch(string userName)
@@ -406,5 +418,81 @@ namespace Neve.Server.Hubs
         }
 
         // Game
+        public async Task PreMatch(string roomName, string Deck, GameState Match)
+        {
+            if (Deck != null)
+            {
+                List<Card> deck =
+                    JsonConvert.DeserializeObject(Deck, typeof(List<Card>)) as List<Card>;
+
+                var gameManger = new GameManger();
+                Room new_room = new Room(null, roomName, null, null, null, true);
+                DatabaseManager databaseManager = new DatabaseManager(_connectionstring, new_room);
+                await databaseManager.Connection.OpenAsync();
+                List<Card> Maindeck = await databaseManager.GetDeckAsync();
+                if (Maindeck != null && Maindeck.Count != 0)
+                {
+                    await databaseManager.Connection.CloseAsync();
+                    Maindeck = gameManger.PreMatch(ref Match, Maindeck, deck);
+                    DatabaseManager databaseManager1 = new DatabaseManager(
+                        _connectionstring,
+                        new_room,
+                        Maindeck
+                    );
+                    await databaseManager1.Connection.OpenAsync();
+                    await databaseManager1.UpdateDeckAsync();
+                    await databaseManager1.Connection.CloseAsync();
+                    await Clients
+                        .Group(roomName)
+                        .SendAsync("GetDeck", JsonConvert.SerializeObject(Maindeck));
+                    await Clients.Group(roomName).SendAsync("GameStateCheck", Match);
+                }
+                else
+                {
+                    await databaseManager.Connection.CloseAsync();
+                    DatabaseManager databaseManager2 = new DatabaseManager(
+                        _connectionstring,
+                        new_room,
+                        deck
+                    );
+                    await databaseManager2.Connection.OpenAsync();
+                    await databaseManager2.UpdateDeckAsync();
+                    await databaseManager2.Connection.CloseAsync();
+                }
+            }
+        }
+
+        public async Task DrawCard(string roomName,string name){
+            await Clients.OthersInGroup(roomName).SendAsync("DrawCard",name);
+        }
+
+        public async Task CardStateUpdate(string roomName,string name,CardState cardState){
+            await Clients.OthersInGroup(roomName).SendAsync("CardStateUpdate",name,cardState);
+        }
+
+        //
+        public async Task RefreshMainDeck(string roomName, string Deck)
+        {
+            if (Deck != null)
+            {
+                List<Card> deck =
+                    JsonConvert.DeserializeObject(Deck, typeof(List<Card>)) as List<Card>;
+
+                Room new_room = new Room(null, roomName, null, null, null, true);
+                DatabaseManager databaseManager = new DatabaseManager(
+                    _connectionstring,
+                    new_room,
+                    deck
+                );
+                await databaseManager.Connection.OpenAsync();
+                await databaseManager.UpdateDeckAsync();
+                await databaseManager.Connection.CloseAsync();
+                await databaseManager.Connection.OpenAsync();
+                await Clients
+                        .Group(roomName)
+                        .SendAsync("GetDeck", JsonConvert.SerializeObject(await databaseManager.GetDeckAsync()));
+                await databaseManager.Connection.CloseAsync();
+            }
+        }
     }
 }

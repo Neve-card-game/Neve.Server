@@ -2,8 +2,14 @@
     "cSpell.words": [
         "appsettings",
         "connectionstring",
+        "deckid",
+        "decklist",
+        "maindeck",
         "Neve",
         "Newtonsoft",
-        "playerdata"
+        "newuser",
+        "playerdata",
+        "Useing",
+        "userdb"
     ]
 }

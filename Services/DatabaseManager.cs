@@ -33,11 +33,12 @@ namespace Neve.Server.Services
 
         //playerdata
         public bool? LoginStatus { get; set; }
-        public int? UseingDeckId { get; set; }
+        public int? UsingDeckId { get; set; }
 
-        public int? RoomNumberOfPeople{get;set;}
+        public int? RoomNumberOfPeople { get; set; }
 
-        public List<string>? RoomMemberList{get;set;}
+        public List<string>? RoomMemberList { get; set; }
+        public List<Card>? MainDeck { get; set; }
         public string? DeckList { get; set; }
 
         public MySqlConnection Connection { get; }
@@ -68,6 +69,21 @@ namespace Neve.Server.Services
             RoomMemberList = _room.RoomMemberList;
             CreatedTime = _room.CreatedTime;
             RoomStatus = _room.Status;
+        }
+
+        public DatabaseManager(string connectionString, Room newRoom, List<Card> deck)
+        {
+            _connectionString = connectionString;
+            Connection = new MySqlConnection(connectionString);
+            _room = newRoom;
+            RoomId = _room.RoomId;
+            RoomName = _room.RoomName;
+            RoomPassword = _room.RoomPassword;
+            RoomNumberOfPeople = _room.RoomNumberOfPeople;
+            RoomMemberList = _room.RoomMemberList;
+            CreatedTime = _room.CreatedTime;
+            RoomStatus = _room.Status;
+            MainDeck = deck;
         }
 
         /// <summary>
@@ -110,7 +126,7 @@ namespace Neve.Server.Services
             await cmd.ExecuteReaderAsync();
         }
 
-        public async Task<bool> UpdataPlayerDackListAsync()
+        public async Task<bool> UpdatePlayerDeckListAsync()
         {
             using var cmd = Connection.CreateCommand();
             cmd.CommandText =
@@ -250,6 +266,23 @@ namespace Neve.Server.Services
             await cmd.ExecuteReaderAsync();
         }
 
+        public async Task<bool> UpdateDeckAsync()
+        {
+            using var cmd = Connection.CreateCommand();
+            cmd.CommandText =
+                @"UPDATE `userdb`.`roomlist`  SET `MainDeck` = @MainDeck   WHERE `RoomName`=@RoomName;";
+            BindParams(cmd);
+            try
+            {
+                await cmd.ExecuteReaderAsync();
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public async Task<List<Room>> GetRoomListAsync()
         {
             List<Room> RoomLists = new List<Room>();
@@ -267,11 +300,43 @@ namespace Neve.Server.Services
                     newRoom.RoomNumberOfPeople = reader.GetInt32(3);
                     newRoom.CreatedTime = reader.GetDateTime(4);
                     newRoom.Status = reader.GetBoolean(5);
-                    newRoom.RoomMemberList = JsonConvert.DeserializeObject(reader.GetString(6),typeof(List<string>)) as List<string>;
+                    newRoom.RoomMemberList =
+                        JsonConvert.DeserializeObject(reader.GetString(6), typeof(List<string>))
+                        as List<string>;
                     RoomLists.Add(newRoom);
                 }
             }
             return RoomLists;
+        }
+
+        public async Task<List<Card>> GetDeckAsync()
+        {
+            List<Card>? maindeck = new List<Card>();
+            using var cmd = Connection.CreateCommand();
+            cmd.CommandText =
+                @"SELECT `MainDeck` FROM `userdb`.`roomlist` WHERE `RoomName`=@RoomName;";
+            BindParams(cmd);
+            DbDataReader reader = await cmd.ExecuteReaderAsync();
+            using (reader)
+            {
+                while (await reader.ReadAsync())
+                {
+                    if (!await reader.IsDBNullAsync(0))
+                    {
+                        maindeck =
+                            JsonConvert.DeserializeObject(reader.GetString(0), typeof(List<Card>))
+                            as List<Card>;
+                    }
+                }
+            }
+            if (maindeck != null)
+            {
+                return maindeck;
+            }
+            else
+            {
+                return default(List<Card>);
+            }
         }
 
         public async Task<bool> RoomNameExist()
@@ -307,7 +372,8 @@ namespace Neve.Server.Services
             return re;
         }
 
-        public async Task RemoveRoom(){
+        public async Task RemoveRoom()
+        {
             using var cmd = Connection.CreateCommand();
             cmd.CommandText = "DELETE FROM `userdb`.`roomlist` WHERE (`RoomName` = @RoomName);";
             BindParams(cmd);
@@ -405,7 +471,7 @@ namespace Neve.Server.Services
                 {
                     ParameterName = "@UseingDeckId",
                     DbType = DbType.Int32,
-                    Value = UseingDeckId,
+                    Value = UsingDeckId,
                 }
             );
 
@@ -446,7 +512,8 @@ namespace Neve.Server.Services
             );
 
             cmd.Parameters.Add(
-                new MySqlParameter{
+                new MySqlParameter
+                {
                     ParameterName = "@RoomMemberList",
                     DbType = DbType.String,
                     Value = JsonConvert.SerializeObject(RoomMemberList),
@@ -468,6 +535,15 @@ namespace Neve.Server.Services
                     ParameterName = "@RoomStatus",
                     DbType = DbType.Boolean,
                     Value = RoomStatus,
+                }
+            );
+
+            cmd.Parameters.Add(
+                new MySqlParameter
+                {
+                    ParameterName = "@MainDeck",
+                    DbType = DbType.String,
+                    Value = JsonConvert.SerializeObject(MainDeck),
                 }
             );
         }
